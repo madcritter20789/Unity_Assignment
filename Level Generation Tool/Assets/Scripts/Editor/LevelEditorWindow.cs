@@ -1,13 +1,129 @@
-using System.Linq;
+using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.Animations;
 using UnityEditor.SceneManagement;
 
+// Observer class for managing events
+public class LevelEventManager
+{
+    public static event Action<string> OnWordAdded;
+    public static event Action<string> OnWordRemoved;
+    public static event Action<string> OnCorrectWordAdded;
+    public static event Action<string> OnCorrectWordRemoved;
+    public static event Action OnCorrectSelection;
+    public static event Action OnIncorrectSelection;
+
+    public static void WordAdded(string word)
+    {
+        OnWordAdded?.Invoke(word);
+    }
+
+    public static void WordRemoved(string word)
+    {
+        OnWordRemoved?.Invoke(word);
+    }
+
+    public static void CorrectWordAdded(string word)
+    {
+        OnCorrectWordAdded?.Invoke(word);
+    }
+
+    public static void CorrectWordRemoved(string word)
+    {
+        OnCorrectWordRemoved?.Invoke(word);
+    }
+
+    public static void CorrectSelection()
+    {
+        OnCorrectSelection?.Invoke();
+    }
+
+    public static void IncorrectSelection()
+    {
+        OnIncorrectSelection?.Invoke();
+    }
+}
+
+// Handles validation logic
+public class SelectionValidator
+{
+    private readonly LevelData levelData;
+
+    public SelectionValidator(LevelData data)
+    {
+        levelData = data;
+    }
+
+    public void ValidateSelection(string word)
+    {
+        if (levelData.correctWords.Contains(word))
+        {
+            LevelEventManager.CorrectSelection();
+        }
+        else
+        {
+            LevelEventManager.IncorrectSelection();
+        }
+    }
+}
+
+// Data Handler for Level Data operations
+public class LevelDataHandler
+{
+    private LevelData levelData;
+
+    public LevelDataHandler(LevelData data)
+    {
+        levelData = data;
+    }
+
+    public void AddWord(string word)
+    {
+        if (!string.IsNullOrEmpty(word))
+        {
+            levelData.words.Add(word);
+            LevelEventManager.WordAdded(word);
+        }
+    }
+
+    public void RemoveWord(int index)
+    {
+        if (index >= 0 && index < levelData.words.Count)
+        {
+            string word = levelData.words[index];
+            levelData.words.RemoveAt(index);
+            LevelEventManager.WordRemoved(word);
+        }
+    }
+
+    public void AddCorrectWord(string word)
+    {
+        if (!string.IsNullOrEmpty(word))
+        {
+            levelData.correctWords.Add(word);
+            LevelEventManager.CorrectWordAdded(word);
+        }
+    }
+
+    public void RemoveCorrectWord(int index)
+    {
+        if (index >= 0 && index < levelData.correctWords.Count)
+        {
+            string word = levelData.correctWords[index];
+            levelData.correctWords.RemoveAt(index);
+            LevelEventManager.CorrectWordRemoved(word);
+        }
+    }
+}
+
+// Level Editor Window
 public class LevelEditorWindow : EditorWindow
 {
     private LevelData levelData;
+    private LevelDataHandler levelDataHandler;
+    private SelectionValidator selectionValidator;
     private string newWord;
     private string newCorrectWord;
     private string newLevelName;
@@ -19,20 +135,39 @@ public class LevelEditorWindow : EditorWindow
         wnd.titleContent = new GUIContent("Custom Level Editor");
     }
 
-    [MenuItem("PuzzleGame/Level Editor")]
-    public static void ShowWindow()
+    private void OnEnable()
     {
-        GetWindow<LevelEditorWindow>("Level Editor");
+        LevelEventManager.OnWordAdded += OnWordAdded;
+        LevelEventManager.OnWordRemoved += OnWordRemoved;
+        LevelEventManager.OnCorrectWordAdded += OnCorrectWordAdded;
+        LevelEventManager.OnCorrectWordRemoved += OnCorrectWordRemoved;
+        LevelEventManager.OnCorrectSelection += OnCorrectSelection;
+        LevelEventManager.OnIncorrectSelection += OnIncorrectSelection;
+    }
+
+    private void OnDisable()
+    {
+        LevelEventManager.OnWordAdded -= OnWordAdded;
+        LevelEventManager.OnWordRemoved -= OnWordRemoved;
+        LevelEventManager.OnCorrectWordAdded -= OnCorrectWordAdded;
+        LevelEventManager.OnCorrectWordRemoved -= OnCorrectWordRemoved;
+        LevelEventManager.OnCorrectSelection -= OnCorrectSelection;
+        LevelEventManager.OnIncorrectSelection -= OnIncorrectSelection;
     }
 
     private void OnGUI()
     {
         EditorGUILayout.LabelField("Level Editor", EditorStyles.boldLabel);
-
         levelData = (LevelData)EditorGUILayout.ObjectField("Level Data", levelData, typeof(LevelData), false);
 
         if (levelData != null)
         {
+            if (levelDataHandler == null || levelDataHandler != new LevelDataHandler(levelData))
+                levelDataHandler = new LevelDataHandler(levelData);
+
+            if (selectionValidator == null || selectionValidator != new SelectionValidator(levelData))
+                selectionValidator = new SelectionValidator(levelData);
+
             DisplayLevelData();
         }
         else
@@ -53,7 +188,7 @@ public class LevelEditorWindow : EditorWindow
 
             if (GUILayout.Button("Delete", GUILayout.Width(60)))
             {
-                RemoveWord(i);
+                levelDataHandler.RemoveWord(i);
             }
             EditorGUILayout.EndHorizontal();
         }
@@ -61,7 +196,8 @@ public class LevelEditorWindow : EditorWindow
         newWord = EditorGUILayout.TextField("Add New Word", newWord);
         if (GUILayout.Button("Add Word"))
         {
-            AddWord();
+            levelDataHandler.AddWord(newWord);
+            newWord = string.Empty;
         }
 
         EditorGUILayout.LabelField("Correct Words:");
@@ -72,7 +208,7 @@ public class LevelEditorWindow : EditorWindow
 
             if (GUILayout.Button("Delete", GUILayout.Width(60)))
             {
-                RemoveCorrectWord(i);
+                levelDataHandler.RemoveCorrectWord(i);
             }
             EditorGUILayout.EndHorizontal();
         }
@@ -80,33 +216,15 @@ public class LevelEditorWindow : EditorWindow
         newCorrectWord = EditorGUILayout.TextField("Add New Correct Word", newCorrectWord);
         if (GUILayout.Button("Add Correct Word"))
         {
-            AddCorrectWord();
+            levelDataHandler.AddCorrectWord(newCorrectWord);
+            newCorrectWord = string.Empty;
         }
 
         levelData.animationClip = (AnimationClip)EditorGUILayout.ObjectField("Animation Clip", levelData.animationClip, typeof(AnimationClip), false);
 
-        EditorGUILayout.LabelField("Actions:");
-        for (int i = 0; i < levelData.actions.Count; i++)
-        {
-            EditorGUILayout.BeginHorizontal();
-            levelData.actions[i] = (AnimationClip)EditorGUILayout.ObjectField("Action " + (i + 1), levelData.actions[i], typeof(AnimationClip), false);
-
-            if (GUILayout.Button("Delete", GUILayout.Width(60)))
-            {
-                RemoveAction(i);
-            }
-            EditorGUILayout.EndHorizontal();
-        }
-
-        if (GUILayout.Button("Add Action"))
-        {
-            AddAction();
-        }
-
         if (GUILayout.Button("Save Level Data"))
         {
-            EditorUtility.SetDirty(levelData);
-            AssetDatabase.SaveAssets();
+            SaveLevelData();
         }
 
         if (GUILayout.Button("Create New Level"))
@@ -114,77 +232,29 @@ public class LevelEditorWindow : EditorWindow
             CreateLevel();
         }
 
-        if (GUILayout.Button("Preview Level"))
+        // Sample validation for testing
+        if (GUILayout.Button("Validate Selection"))
         {
-            PreviewLevel();
+            string wordToValidate = EditorGUILayout.TextField("Word to Validate", "");
+            selectionValidator.ValidateSelection(wordToValidate);
         }
     }
 
-    private void AddWord()
+    private void SaveLevelData()
     {
-        if (!string.IsNullOrEmpty(newWord))
-        {
-            levelData.words.Add(newWord);
-            newWord = string.Empty;
-        }
-    }
-
-    private void AddCorrectWord()
-    {
-        if (!string.IsNullOrEmpty(newCorrectWord))
-        {
-            levelData.correctWords.Add(newCorrectWord);
-            newCorrectWord = string.Empty;
-        }
-    }
-
-    private void AddAction()
-    {
-        levelData.actions.Add(null);
-    }
-
-    private void RemoveWord(int index)
-    {
-        if (index >= 0 && index < levelData.words.Count)
-        {
-            levelData.words.RemoveAt(index);
-        }
-    }
-
-    private void RemoveCorrectWord(int index)
-    {
-        if (index >= 0 && index < levelData.correctWords.Count)
-        {
-            levelData.correctWords.RemoveAt(index);
-        }
-    }
-
-    private void RemoveAction(int index)
-    {
-        if (index >= 0 && index < levelData.actions.Count)
-        {
-            levelData.actions.RemoveAt(index);
-        }
+        EditorUtility.SetDirty(levelData);
+        AssetDatabase.SaveAssets();
     }
 
     private void CreateLevel()
     {
-        //Scene newScene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
-        //Scene newScene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
-
-        // Create a new scene with default game objects (e.g., camera, light)
         Scene newScene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
-        Debug.Log("New level created.");
-
-        // Prompt user to save the scene
         SaveLevel(newScene);
     }
 
-
     private void SaveLevel(Scene scene)
     {
-        // Prompt the user to select a location and name for the new scene file
-        string path = EditorUtility.SaveFilePanelInProject("Save New Level", "NewLevel", "unity", "Assets/Scenes/Levels");
+        string path = EditorUtility.SaveFilePanelInProject("Save New Level", "NewLevel", "unity", "Specify where to save the new level.");
 
         if (!string.IsNullOrEmpty(path))
         {
@@ -197,15 +267,35 @@ public class LevelEditorWindow : EditorWindow
                 Debug.LogError("Failed to save the level.");
             }
         }
-        else
-        {
-            Debug.LogWarning("Save level operation canceled.");
-        }
     }
 
-    private void PreviewLevel()
+    private void OnWordAdded(string word)
     {
-        Debug.Log("Previewing Level: " + levelData.levelName);
-        EditorSceneManager.NewPreviewScene();
+        Debug.Log("Word Added: " + word);
+    }
+
+    private void OnWordRemoved(string word)
+    {
+        Debug.Log("Word Removed: " + word);
+    }
+
+    private void OnCorrectWordAdded(string word)
+    {
+        Debug.Log("Correct Word Added: " + word);
+    }
+
+    private void OnCorrectWordRemoved(string word)
+    {
+        Debug.Log("Correct Word Removed: " + word);
+    }
+
+    private void OnCorrectSelection()
+    {
+        Debug.Log("Correct selection made.");
+    }
+
+    private void OnIncorrectSelection()
+    {
+        Debug.Log("Incorrect selection made.");
     }
 }
